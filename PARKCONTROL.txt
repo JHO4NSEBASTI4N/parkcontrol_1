@@ -1,0 +1,279 @@
+-- ============================================================
+-- PARKCONTROL
+-- Sistema Web de Gestión de Parqueadero
+-- ============================================================
+
+-- ============================================================
+-- 1. CREAR BASE DE DATOS
+-- ============================================================
+
+CREATE DATABASE IF NOT EXISTS parkcontrol
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+USE parkcontrol;
+
+
+-- ============================================================
+-- 2. TABLA: USUARIOS
+-- Usuarios que pueden ingresar al sistema
+-- ============================================================
+
+CREATE TABLE usuarios (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+    nombre VARCHAR(100) NOT NULL,
+
+    correo VARCHAR(100) NOT NULL UNIQUE,
+
+    password_hash VARCHAR(255) NOT NULL,
+
+    rol VARCHAR(20) NOT NULL DEFAULT 'OPERADOR',
+
+    estado TINYINT(1) NOT NULL DEFAULT 1,
+
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    fecha_actualizacion DATETIME NOT NULL
+        DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_usuario_rol
+        CHECK (rol IN ('ADMIN', 'OPERADOR')),
+
+    INDEX idx_usuarios_correo (correo),
+    INDEX idx_usuarios_rol (rol),
+    INDEX idx_usuarios_estado (estado)
+);
+
+
+-- ============================================================
+-- 3. TABLA: CLIENTES
+-- Personas propietarias o responsables de los vehículos
+-- ============================================================
+
+CREATE TABLE clientes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+    nombre VARCHAR(100) NOT NULL,
+
+    documento VARCHAR(20) NOT NULL UNIQUE,
+
+    telefono VARCHAR(20),
+
+    correo VARCHAR(100),
+
+    fecha_registro DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    estado TINYINT(1) NOT NULL DEFAULT 1,
+
+    INDEX idx_clientes_nombre (nombre),
+    INDEX idx_clientes_documento (documento),
+    INDEX idx_clientes_estado (estado)
+);
+
+
+-- ============================================================
+-- 4. TABLA: VEHICULOS
+-- Vehículos registrados en ParkControl
+-- ============================================================
+
+CREATE TABLE vehiculos (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+    codigo VARCHAR(20) NOT NULL UNIQUE,
+
+    placa VARCHAR(20) UNIQUE,
+
+    tipo VARCHAR(20) NOT NULL,
+
+    marca VARCHAR(50),
+
+    modelo VARCHAR(50),
+
+    color VARCHAR(30),
+
+    cliente_id INT UNSIGNED NOT NULL,
+
+    estado TINYINT(1) NOT NULL DEFAULT 1,
+
+    fecha_registro DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_vehiculos_cliente
+        FOREIGN KEY (cliente_id)
+        REFERENCES clientes(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    CONSTRAINT chk_vehiculo_tipo
+        CHECK (
+            tipo IN (
+                'MOTO',
+                'BICICLETA',
+                'PATINETA'
+            )
+        ),
+
+    INDEX idx_vehiculos_codigo (codigo),
+    INDEX idx_vehiculos_placa (placa),
+    INDEX idx_vehiculos_tipo (tipo),
+    INDEX idx_vehiculos_cliente (cliente_id),
+    INDEX idx_vehiculos_estado (estado)
+);
+
+
+-- ============================================================
+-- 5. TABLA: TARIFAS
+-- Tarifas por minuto según el tipo de vehículo
+-- ============================================================
+
+CREATE TABLE tarifas (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+    tipo_vehiculo VARCHAR(20) NOT NULL UNIQUE,
+
+    valor_minuto DECIMAL(10,2) NOT NULL,
+
+    estado TINYINT(1) NOT NULL DEFAULT 1,
+
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    fecha_actualizacion DATETIME NOT NULL
+        DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT chk_tarifa_tipo
+        CHECK (
+            tipo_vehiculo IN (
+                'MOTO',
+                'BICICLETA',
+                'PATINETA'
+            )
+        ),
+
+    CONSTRAINT chk_tarifa_valor
+        CHECK (valor_minuto > 0),
+
+    INDEX idx_tarifas_tipo (tipo_vehiculo),
+    INDEX idx_tarifas_estado (estado)
+);
+
+
+-- ============================================================
+-- 6. TABLA: MOVIMIENTOS
+-- Registra entrada y salida de los vehículos
+-- ============================================================
+
+CREATE TABLE movimientos (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+    vehiculo_id INT UNSIGNED NOT NULL,
+
+    usuario_ingreso_id INT UNSIGNED,
+
+    usuario_salida_id INT UNSIGNED,
+
+    fecha_ingreso DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    fecha_salida DATETIME NULL,
+
+    minutos INT UNSIGNED NULL,
+
+    valor_total DECIMAL(10,2) NULL,
+
+    estado VARCHAR(20) NOT NULL DEFAULT 'ACTIVO',
+
+    CONSTRAINT fk_movimientos_vehiculo
+        FOREIGN KEY (vehiculo_id)
+        REFERENCES vehiculos(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    CONSTRAINT fk_movimientos_usuario_ingreso
+        FOREIGN KEY (usuario_ingreso_id)
+        REFERENCES usuarios(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+
+    CONSTRAINT fk_movimientos_usuario_salida
+        FOREIGN KEY (usuario_salida_id)
+        REFERENCES usuarios(id)
+        ON UPDATE CASCADE
+        ON DELETE SET NULL,
+
+    CONSTRAINT chk_movimiento_estado
+        CHECK (
+            estado IN (
+                'ACTIVO',
+                'FINALIZADO',
+                'CANCELADO'
+            )
+        ),
+
+    CONSTRAINT chk_movimiento_minutos
+        CHECK (
+            minutos IS NULL OR minutos >= 0
+        ),
+
+    CONSTRAINT chk_movimiento_valor
+        CHECK (
+            valor_total IS NULL OR valor_total >= 0
+        ),
+
+    INDEX idx_movimientos_vehiculo (vehiculo_id),
+    INDEX idx_movimientos_estado (estado),
+    INDEX idx_movimientos_fecha_ingreso (fecha_ingreso),
+    INDEX idx_movimientos_fecha_salida (fecha_salida),
+    INDEX idx_movimientos_usuario_ingreso (usuario_ingreso_id),
+    INDEX idx_movimientos_usuario_salida (usuario_salida_id)
+);
+
+
+-- ============================================================
+-- 7. TABLA: PAGOS
+-- Registra el pago realizado por un movimiento
+-- ============================================================
+
+CREATE TABLE pagos (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+
+    movimiento_id INT UNSIGNED NOT NULL UNIQUE,
+
+    valor DECIMAL(10,2) NOT NULL,
+
+    metodo_pago VARCHAR(20) NOT NULL,
+
+    fecha_pago DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    estado VARCHAR(20) NOT NULL DEFAULT 'PAGADO',
+
+    CONSTRAINT fk_pagos_movimiento
+        FOREIGN KEY (movimiento_id)
+        REFERENCES movimientos(id)
+        ON UPDATE CASCADE
+        ON DELETE RESTRICT,
+
+    CONSTRAINT chk_pago_metodo
+        CHECK (
+            metodo_pago IN (
+                'EFECTIVO',
+                'TARJETA',
+                'TRANSFERENCIA'
+            )
+        ),
+
+    CONSTRAINT chk_pago_estado
+        CHECK (
+            estado IN (
+                'PAGADO',
+                'ANULADO'
+            )
+        ),
+
+    CONSTRAINT chk_pago_valor
+        CHECK (valor > 0),
+
+    INDEX idx_pagos_fecha (fecha_pago),
+    INDEX idx_pagos_metodo (metodo_pago),
+    INDEX idx_pagos_estado (estado)
+);

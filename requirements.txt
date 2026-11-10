@@ -1,0 +1,40 @@
+# ============================================================
+# ParkControl - Dependencias del backend (FastAPI + MySQL)
+#
+# Instalar con:
+#     pip install -r requirements.txt
+# ============================================================
+
+# ---------- Framework web ----------
+fastapi==0.142.2
+starlette==1.7.0
+uvicorn==0.54.0
+h11==0.16.0
+anyio==4.15.1
+click==8.5.0
+
+# ---------- Formularios y validación ----------
+python-multipart>=0.0.9
+email-validator==2.3.0
+
+# ---------- Base de datos ----------
+SQLAlchemy==2.1.4
+PyMySQL==1.2.3
+
+# ---------- Configuración y modelos ----------
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pydantic_core==2.46.5
+annotated-types==0.8.0
+annotated-doc==0.0.5
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+python-dotenv==1.2.4
+
+# ---------- Seguridad / JWT ----------
+PyJWT>=2.8.0
+pwdlib[argon2]
+
+# ---------- Utilidades ----------
+idna==3.20
+opentelemetry-api==1.45.1

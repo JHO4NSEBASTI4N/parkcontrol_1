@@ -1,0 +1,11 @@
+hacer las vistas de park control
+movimientos
+pagos
+tarifas
+usuarios
+vehiculos
+
+y que se cree automaticamente el usuario del administrador en la base de datos como en el proyecto de java para poder ingresar desde hay
+crear reportes aplicando filtros y busquedas de vehiculos, ingresos y salidas, clientes y movimientos del dia reportes semanales, quinsenales y mensuales
+cuando ingrese como admin que me diga que estoy en el modulo de administrador
+cuando ingrese como operador que me diga que estoy en el modulo de operador y que solo le salga la seccion de vehiculos registrar clientes y realizar pagos y movimientos no debe tener acceso ni a tarifas ni a usuarios
