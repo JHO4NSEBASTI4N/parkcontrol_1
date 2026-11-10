@@ -39,6 +39,7 @@ import {
   mensajeError,
   type EstadoMovimiento,
   type MovimientoDetallado,
+  type VehiculoDetallado,
 } from "../services/parqueadero";
 
 type FiltroEstado = "TODOS" | EstadoMovimiento;
@@ -57,6 +58,7 @@ function textoEstado(estado: EstadoMovimiento): string {
 
 export default function Movimientos() {
   const [movimientos, setMovimientos] = useState<MovimientoDetallado[]>([]);
+  const [vehiculos, setVehiculos] = useState<VehiculoDetallado[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>("TODOS");
 
@@ -65,7 +67,7 @@ export default function Movimientos() {
   const [error, setError] = useState("");
   const [mensaje, setMensaje] = useState("");
 
-  const [codigoEntrada, setCodigoEntrada] = useState("");
+  const [vehiculoEntradaId, setVehiculoEntradaId] = useState("");
   const [entrando, setEntrando] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -73,8 +75,12 @@ export default function Movimientos() {
     setError("");
 
     try {
-      const datos = await listarMovimientos();
+      const [datos, datosVehiculos] = await Promise.all([
+        listarMovimientos(),
+        listarVehiculos(),
+      ]);
       setMovimientos(datos);
+      setVehiculos(datosVehiculos);
     } catch (errorApi: unknown) {
       setError(mensajeError(errorApi));
     } finally {
@@ -130,62 +136,40 @@ export default function Movimientos() {
     setError("");
     setMensaje("");
 
-    const termino = codigoEntrada.trim().toLowerCase();
-
-    if (!termino) {
-      setError("Ingresa el código o la placa del vehículo que va a ingresar.");
+    if (!vehiculoEntradaId) {
+      setError("Selecciona un vehículo para registrar su entrada.");
       return;
     }
 
-    const candidato = movimientos.find(
-      (movimiento) =>
-        (movimiento.vehiculo_codigo ?? "").toLowerCase() === termino ||
-        (movimiento.placa ?? "").toLowerCase() === termino
+    const vehiculo = vehiculos.find(
+      (item) => item.id === Number(vehiculoEntradaId)
     );
 
-    if (candidato?.estado === "ACTIVO") {
-      setError(
-        `El vehículo ${candidato.vehiculo_codigo} ya está dentro del parqueadero.`
-      );
+    if (!vehiculo) {
+      setError("El vehículo seleccionado ya no está disponible. Actualiza la lista.");
+      return;
+    }
+
+    if (vehiculo.en_parqueadero) {
+      setError("Ese vehículo ya tiene un ingreso activo.");
+      return;
+    }
+
+    if (!vehiculo.estado) {
+      setError("El vehículo está inactivo. Actívalo para registrar la entrada.");
       return;
     }
 
     setEntrando(true);
 
     try {
-      // El endpoint trabaja con el ID del vehículo; se busca en el listado.
-      const vehiculos = await listarVehiculos();
-
-      const encontrado = vehiculos.find(
-        (vehiculo) =>
-          vehiculo.codigo.toLowerCase() === termino ||
-          (vehiculo.placa ?? "").toLowerCase() === termino
-      );
-
-      if (!encontrado) {
-        setError("No existe un vehículo con ese código o placa.");
-        return;
-      }
-
-      if (encontrado.en_parqueadero) {
-        setError("Ese vehículo ya tiene un ingreso activo.");
-        return;
-      }
-
-      if (!encontrado.estado) {
-        setError("El vehículo está inactivo. Actívalo para registrar la entrada.");
-        return;
-      }
-
-      await registrarEntrada(encontrado.id);
-
+      await registrarEntrada(vehiculo.id);
       setMensaje(
-        `Entrada registrada para ${encontrado.codigo}${
-          encontrado.placa ? ` (${encontrado.placa})` : ""
+        `Entrada registrada para ${vehiculo.codigo}${
+          vehiculo.placa ? ` (${vehiculo.placa})` : ""
         }.`
       );
-      setCodigoEntrada("");
-
+      setVehiculoEntradaId("");
       await cargar();
     } catch (errorApi: unknown) {
       setError(mensajeError(errorApi));
@@ -291,38 +275,40 @@ export default function Movimientos() {
               <LogIn size={18} /> Registrar entrada
             </h3>
             <p>
-              Escribe el código o la placa del vehículo y presiona registrar.
+              Selecciona un vehículo registrado que esté activo y fuera del parqueadero.
             </p>
           </div>
         </div>
 
         <div className="pc-entrada-form">
           <label className="pc-busqueda-vehiculos pc-busqueda-entrada">
-            <Search size={16} />
-            <input
-              value={codigoEntrada}
-              onChange={(evento) => setCodigoEntrada(evento.target.value)}
-              onKeyDown={(evento) => {
-                if (evento.key === "Enter") void manejarEntrada();
-              }}
-              placeholder="Ejemplo: VEH-001 o XFZ-04E"
-            />
-            {codigoEntrada && (
-              <button
-                type="button"
-                className="pc-limpiar-busqueda"
-                onClick={() => setCodigoEntrada("")}
-                aria-label="Limpiar"
-              >
-                <X size={14} />
-              </button>
-            )}
+            <CarFront size={16} />
+            <select
+              value={vehiculoEntradaId}
+              onChange={(evento) => setVehiculoEntradaId(evento.target.value)}
+              aria-label="Seleccionar vehículo para registrar entrada"
+              disabled={cargando || entrando}
+            >
+              <option value="">
+                {vehiculos.some((vehiculo) => vehiculo.estado && !vehiculo.en_parqueadero)
+                  ? "Selecciona un vehículo registrado"
+                  : "No hay vehículos disponibles para ingresar"}
+              </option>
+              {vehiculos
+                .filter((vehiculo) => vehiculo.estado && !vehiculo.en_parqueadero)
+                .map((vehiculo) => (
+                  <option key={vehiculo.id} value={vehiculo.id}>
+                    {vehiculo.codigo} · {vehiculo.placa ?? "Sin placa"} · {vehiculo.tipo}
+                    {vehiculo.cliente_nombre ? ` · ${vehiculo.cliente_nombre}` : ""}
+                  </option>
+                ))}
+            </select>
           </label>
 
           <button
             className="pc-accion-principal"
             onClick={() => void manejarEntrada()}
-            disabled={entrando}
+            disabled={entrando || cargando || !vehiculoEntradaId}
           >
             <LogIn size={17} />
             {entrando ? "Registrando..." : "Registrar entrada"}

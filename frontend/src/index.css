@@ -1882,6 +1882,7 @@ button {
 }
 
 .pc-busqueda-entrada { flex: 1; width: auto; max-width: 420px; }
+.pc-busqueda-entrada select { width: 100%; min-width: 0; border: 0; outline: 0; color: #243754; background: transparent; font: inherit; font-size: 11px; cursor: pointer; }
 
 /* ---------- Pendientes de pago ---------- */
 
