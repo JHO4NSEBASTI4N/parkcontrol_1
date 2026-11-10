@@ -1,8 +1,8 @@
 """Permisos y módulos disponibles según el rol del usuario.
 
 El administrador tiene acceso total al sistema.
-El operador solo puede trabajar con vehículos, clientes,
-movimientos y pagos (nunca tarifas, usuarios ni reportes).
+El operador puede trabajar con vehículos, clientes, movimientos y pagos,
+y consultar únicamente el reporte diario de movimientos.
 """
 
 from app.core.config import configuracion
@@ -28,6 +28,7 @@ MODULOS_OPERADOR = [
     "clientes",
     "movimientos",
     "pagos",
+    "reportes",
 ]
 
 PERMISOS_POR_ROL: dict[str, list[str]] = {
@@ -47,6 +48,7 @@ PERMISOS_POR_ROL: dict[str, list[str]] = {
         "movimientos:gestionar",
         "pagos:gestionar",
         "dashboard:ver",
+        "reportes:movimientos_hoy",
     ],
 }
 

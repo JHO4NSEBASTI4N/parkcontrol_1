@@ -3,7 +3,8 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencias import exigir_administrador
+from app.core.dependencias import exigir_administrador, obtener_usuario_actual
+from app.core.permisos import ROL_ADMIN
 from app.database.connection import obtener_sesion
 from app.models.usuarios import Usuario
 from app.schemas.reportes import ReporteConsolidado, ReportePeriodo
@@ -101,8 +102,16 @@ def reporte_movimientos(
     estado: str | None = None,
     tipo: str | None = None,
     db: Session = Depends(obtener_sesion),
-    administrador: Usuario = Depends(exigir_administrador),
+    usuario: Usuario = Depends(obtener_usuario_actual),
 ):
+    # Los operadores pueden consultar exclusivamente los movimientos del día.
+    # La restricción se aplica en el servidor para que no pueda eludirse
+    # manipulando los parámetros del navegador.
+    if usuario.rol != ROL_ADMIN:
+        periodo = "hoy"
+        desde = None
+        hasta = None
+
     try:
         return reporte_servicio.reporte_movimientos(
             db,
