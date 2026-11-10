@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.dependencias import (
     obtener_usuario_actual,
     exigir_administrador,
+    exigir_permiso,
 )
 from app.database.connection import obtener_sesion
 from app.models.clientes import Cliente
@@ -64,7 +65,7 @@ def obtener_cliente(
 def crear_cliente(
     datos: ClienteCrear,
     db: Session = Depends(obtener_sesion),
-    usuario_actual = Depends(exigir_administrador),
+    usuario_actual = Depends(exigir_permiso("clientes:gestionar")),
 ):
     documento = datos.documento.strip()
 
