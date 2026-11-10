@@ -276,18 +276,92 @@ export default function Reportes() {
     }
 
     const documento = new jsPDF({ orientation: "landscape" });
-    documento.setFontSize(16);
-    documento.text(`ParkControl · Reporte de ${nombreReporte}`, 14, 15);
+    const ancho = documento.internal.pageSize.getWidth();
+    const alto = documento.internal.pageSize.getHeight();
+    const margen = 14;
+    const rango = pestana === "movimientos" ? movimientos : pestana === "ingresos" ? ingresos : clientes;
+    const etiquetaPeriodo = esAdministrador
+      ? (PERIODOS.find((item) => item.valor === periodo)?.etiqueta ?? periodo)
+      : "Hoy";
+
+    // El gráfico usa exactamente las filas exportadas, no los totales generales.
+    const categorias = pestana === "movimientos"
+      ? filasMovimientos.map((fila) => fila.tipo ? (ETIQUETA_TIPO[fila.tipo] ?? fila.tipo) : "Sin tipo")
+      : pestana === "ingresos"
+        ? (ingresos?.filas ?? []).map((fila) => ETIQUETA_METODO[fila.metodo_pago] ?? fila.metodo_pago ?? "Sin método")
+        : filasClientes.map((fila) => fila.estado ? "Activos" : "Inactivos");
+    const conteos = new Map<string, number>();
+    categorias.forEach((categoria) => conteos.set(categoria || "Sin definir", (conteos.get(categoria || "Sin definir") ?? 0) + 1));
+    const ordenados = [...conteos.entries()].sort((a, b) => b[1] - a[1]);
+    const barras = ordenados.slice(0, 5);
+    if (ordenados.length > 5) barras.push(["Otros", ordenados.slice(5).reduce((total, item) => total + item[1], 0)]);
+    const tituloGrafico = pestana === "movimientos" ? "Movimientos por tipo de vehículo"
+      : pestana === "ingresos" ? "Pagos por método" : "Clientes por estado";
+
+    documento.setFillColor(15, 35, 63);
+    documento.rect(0, 0, ancho, 38, "F");
+    documento.setFillColor(36, 190, 173);
+    documento.rect(0, 0, 4, 38, "F");
+    documento.setTextColor(88, 222, 204);
+    documento.setFont("helvetica", "bold");
     documento.setFontSize(10);
-    documento.text(`Periodo: ${esAdministrador ? (PERIODOS.find((item) => item.valor === periodo)?.etiqueta ?? periodo) : "Hoy"}`, 14, 22);
+    documento.text("PARKCONTROL  /  INFORMES", margen, 11);
+    documento.setTextColor(255, 255, 255);
+    documento.setFontSize(20);
+    documento.text(`Reporte de ${nombreReporte}`, margen, 22);
+    documento.setFont("helvetica", "normal");
+    documento.setFontSize(9);
+    documento.text(`${etiquetaPeriodo}${rango ? `  |  ${rango.desde} al ${rango.hasta}` : ""}`, margen, 31);
+    documento.text(`Generado: ${new Date().toLocaleString("es-CO")}`, ancho - margen, 31, { align: "right" });
+
+    documento.setFillColor(241, 246, 250);
+    documento.roundedRect(margen, 44, ancho - 2 * margen, 55, 3, 3, "F");
+    documento.setTextColor(25, 48, 75);
+    documento.setFont("helvetica", "bold");
+    documento.setFontSize(12);
+    documento.text("Análisis para la toma de decisiones", margen + 6, 52);
+    documento.setFont("helvetica", "normal");
+    documento.setFontSize(9);
+    documento.text(`${tituloGrafico} · ${filas.length} registros exportados`, margen + 6, 58);
+    const maximo = Math.max(...barras.map((barra) => barra[1]), 1);
+    const inicioBarra = margen + 61;
+    const anchoBarra = ancho - inicioBarra - margen - 30;
+    barras.forEach(([etiqueta, cantidad], indice) => {
+      const y = 63 + indice * 5.5;
+      documento.setTextColor(53, 72, 92);
+      documento.text(documento.splitTextToSize(etiqueta, 49)[0], margen + 6, y + 3);
+      documento.setFillColor(218, 229, 237);
+      documento.roundedRect(inicioBarra, y, anchoBarra, 3.5, 1, 1, "F");
+      documento.setFillColor(19, 156, 145);
+      documento.roundedRect(inicioBarra, y, anchoBarra * cantidad / maximo, 3.5, 1, 1, "F");
+      documento.setTextColor(25, 48, 75);
+      documento.text(`${cantidad} (${Math.round(cantidad / filas.length * 100)}%)`, inicioBarra + anchoBarra + 3, y + 3);
+    });
+
+    documento.setTextColor(25, 48, 75);
+    documento.setFont("helvetica", "bold");
+    documento.setFontSize(12);
+    documento.text("Detalle de registros", margen, 108);
     autoTable(documento, {
       head: [encabezados],
       body: filas.map((fila) => fila.map((celda) => String(celda ?? "—"))),
-      startY: 28,
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [30, 64, 108] },
-      margin: { left: 14, right: 14 },
+      startY: 112,
+      styles: { fontSize: 8, cellPadding: 3, textColor: [45, 61, 78], overflow: "linebreak" },
+      headStyles: { fillColor: [30, 64, 94], textColor: 255, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [242, 247, 250] },
+      margin: { top: 16, bottom: 15, left: margen, right: margen },
     });
+    const paginas = documento.getNumberOfPages();
+    for (let pagina = 1; pagina <= paginas; pagina++) {
+      documento.setPage(pagina);
+      documento.setDrawColor(218, 229, 237);
+      documento.line(margen, alto - 11, ancho - margen, alto - 11);
+      documento.setFont("helvetica", "normal");
+      documento.setFontSize(8);
+      documento.setTextColor(100, 116, 139);
+      documento.text("ParkControl  |  Reporte generado con los filtros seleccionados", margen, alto - 6);
+      documento.text(`Página ${pagina} de ${paginas}`, ancho - margen, alto - 6, { align: "right" });
+    }
     documento.save(`${nombre}.pdf`);
   }
 
