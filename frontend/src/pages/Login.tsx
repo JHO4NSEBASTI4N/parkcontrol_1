@@ -7,8 +7,6 @@ import {
   Mail,
   ParkingCircle,
   ShieldCheck,
-  UserCog,
-  Wrench,
 } from "lucide-react";
 
 import { useSesion } from "../contexto/SesionContext";
@@ -73,18 +71,6 @@ export default function Login() {
   // Si ya existe una sesión activa, ir directo al panel.
   if (usuario) {
     return <Navigate to="/dashboard" replace />;
-  }
-
-  function usarCredenciales(rol: "ADMIN" | "OPERADOR") {
-    if (rol === "ADMIN") {
-      setCorreo("admin@parkcontrol.com");
-      setContrasena("Admin123*");
-    } else {
-      setCorreo("operador@parkcontrol.com");
-      setContrasena("Operador123*");
-    }
-
-    setError("");
   }
 
   return (

@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { strToU8, zipSync } from "fflate";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 import {
   ArrowDownRight,
@@ -17,6 +20,7 @@ import {
 } from "lucide-react";
 
 import EncabezadoModulo from "../componentes/EncabezadoModulo";
+import { useSesion } from "../contexto/SesionContext";
 import {
   Aviso,
   BarraListado,
@@ -82,31 +86,60 @@ function haceDiasISO(dias: number): string {
   return fechaISO(fecha);
 }
 
-function descargarCSV(nombre: string, filas: (string | number | null)[][]) {
-  const contenido = filas
-    .map((fila) =>
-      fila
-        .map((celda) => {
-          const texto = String(celda ?? "").replace(/"/g, '""');
-          return `"${texto}"`;
-        })
-        .join(";")
-    )
-    .join("\n");
-
-  const blob = new Blob([`\uFEFF${contenido}`], {
-    type: "text/csv;charset=utf-8;",
+function descargarExcel(
+  nombre: string,
+  encabezados: string[],
+  filas: (string | number | null)[][]
+) {
+  const tabla = [encabezados, ...filas];
+  const escaparXml = (valor: string) => valor
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;");
+  const columnaExcel = (indice: number) => {
+    let numero = indice + 1;
+    let columna = "";
+    while (numero > 0) {
+      const resto = (numero - 1) % 26;
+      columna = String.fromCharCode(65 + resto) + columna;
+      numero = Math.floor((numero - 1) / 26);
+    }
+    return columna;
+  };
+  const filasXml = tabla.map((fila, indiceFila) => {
+    const celdas = fila.map((valor, indiceColumna) => {
+      const referencia = `${columnaExcel(indiceColumna)}${indiceFila + 1}`;
+      if (typeof valor === "number" && Number.isFinite(valor)) {
+        return `<c r="${referencia}"><v>${valor}</v></c>`;
+      }
+      return `<c r="${referencia}" t="inlineStr"><is><t xml:space="preserve">${escaparXml(String(valor ?? ""))}</t></is></c>`;
+    }).join("");
+    return `<row r="${indiceFila + 1}">${celdas}</row>`;
+  }).join("");
+  const xml = (contenido: string) => strToU8(
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>${contenido}`
+  );
+  const archivo = zipSync({
+    "[Content_Types].xml": xml('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'),
+    "_rels/.rels": xml('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'),
+    "xl/workbook.xml": xml('<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Reporte" sheetId="1" r:id="rId1"/></sheets></workbook>'),
+    "xl/_rels/workbook.xml.rels": xml('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'),
+    "xl/worksheets/sheet1.xml": xml(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${filasXml}</sheetData></worksheet>`),
   });
-
+  const blob = new Blob([archivo], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
   const enlace = document.createElement("a");
   enlace.href = URL.createObjectURL(blob);
-  enlace.download = nombre;
+  enlace.download = `${nombre}.xlsx`;
   enlace.click();
   URL.revokeObjectURL(enlace.href);
 }
 
 export default function Reportes() {
-  const [periodo, setPeriodo] = useState<PeriodoReporte>("semanal");
+  const { esAdministrador } = useSesion();
+  const [periodo, setPeriodo] = useState<PeriodoReporte>(esAdministrador ? "semanal" : "hoy");
   const [desde, setDesde] = useState(haceDiasISO(6));
   const [hasta, setHasta] = useState(hoyISO());
   const [texto, setTexto] = useState("");
@@ -140,6 +173,28 @@ export default function Reportes() {
     setError("");
 
     try {
+      if (!esAdministrador) {
+        const datosMovimientos = await obtenerReporteMovimientos({
+          ...opciones,
+          periodo: "hoy",
+          desde: undefined,
+          hasta: undefined,
+        });
+        const movimientosDelDia = new Map<number, FilaMovimientoReporte>();
+        [...datosMovimientos.filas, ...datosMovimientos.filas_salidas].forEach((fila) => {
+          movimientosDelDia.set(fila.id, fila);
+        });
+        setMovimientos({
+          ...datosMovimientos,
+          filas: [...movimientosDelDia.values()].sort((a, b) => b.id - a.id),
+        });
+        setConsolidado(null);
+        setPeriodoDatos(null);
+        setIngresos(null);
+        setClientes(null);
+        return;
+      }
+
       const [datosConsolidado, datosPeriodo, datosMovimientos, datosIngresos, datosClientes] =
         await Promise.all([
           obtenerReporteConsolidado(opciones),
@@ -151,7 +206,14 @@ export default function Reportes() {
 
       setConsolidado(datosConsolidado);
       setPeriodoDatos(datosPeriodo);
-      setMovimientos(datosMovimientos);
+      const todosLosMovimientos = new Map<number, FilaMovimientoReporte>();
+      [...datosMovimientos.filas, ...datosMovimientos.filas_salidas].forEach((fila) => {
+        todosLosMovimientos.set(fila.id, fila);
+      });
+      setMovimientos({
+        ...datosMovimientos,
+        filas: [...todosLosMovimientos.values()].sort((a, b) => b.id - a.id),
+      });
       setIngresos(datosIngresos);
       setClientes(datosClientes);
     } catch (errorApi: unknown) {
@@ -159,7 +221,7 @@ export default function Reportes() {
     } finally {
       setCargando(false);
     }
-  }, [opciones]);
+  }, [opciones, esAdministrador]);
 
   useEffect(() => {
     void cargar();
@@ -179,98 +241,71 @@ export default function Reportes() {
 
   const filasClientes: FilaClienteReporte[] = clientes?.filas ?? [];
   const filasMovimientos: FilaMovimientoReporte[] = movimientos?.filas ?? [];
+  const cantidadExportable = pestana === "movimientos"
+    ? filasMovimientos.length
+    : pestana === "ingresos"
+      ? ingresos?.filas.length ?? 0
+      : filasClientes.length;
 
-  function exportar() {
-    const etiqueta =
-      PERIODOS.find((item) => item.valor === periodo)?.etiqueta ?? "reporte";
+  function exportar(formato: "excel" | "pdf") {
+    const nombreReporte = pestana === "movimientos"
+      ? "movimientos"
+      : pestana === "ingresos"
+        ? "ingresos"
+        : "clientes";
+    const nombre = `parkcontrol-${nombreReporte}-${esAdministrador ? periodo : "hoy"}`;
+    let encabezados: string[];
+    let filas: (string | number | null)[][];
 
     if (pestana === "movimientos" && movimientos) {
-      descargarCSV(
-        `parkcontrol-movimientos-${periodo}.csv`,
-        [
-          [
-            "ID",
-            "Vehículo",
-            "Placa",
-            "Tipo",
-            "Cliente",
-            "Documento",
-            "Ingreso",
-            "Salida",
-            "Minutos",
-            "Valor",
-            "Estado",
-          ],
-          ...movimientos.filas.map((fila) => [
-            fila.id,
-            fila.codigo,
-            fila.placa,
-            fila.tipo,
-            fila.cliente,
-            fila.documento,
-            fila.fecha_ingreso,
-            fila.fecha_salida,
-            fila.minutos,
-            fila.valor_total,
-            fila.estado,
-          ]),
-        ]
-      );
+      encabezados = ["ID", "Vehículo", "Placa", "Tipo", "Cliente", "Documento", "Ingreso", "Salida", "Minutos", "Valor", "Estado"];
+      filas = movimientos.filas.map((fila) => [fila.id, fila.codigo, fila.placa, fila.tipo, fila.cliente, fila.documento, fila.fecha_ingreso, fila.fecha_salida, fila.minutos, fila.valor_total, fila.estado]);
+    } else if (pestana === "ingresos" && ingresos) {
+      encabezados = ["Pago", "Movimiento", "Vehículo", "Placa", "Cliente", "Fecha", "Valor", "Método", "Estado"];
+      filas = ingresos.filas.map((fila) => [fila.id, fila.movimiento_id, fila.vehiculo, fila.placa, fila.cliente, fila.fecha_pago, fila.valor, fila.metodo_pago, fila.estado]);
+    } else if (pestana === "clientes" && clientes) {
+      encabezados = ["Cliente", "Documento", "Teléfono", "Correo", "Vehículos", "Movimientos", "Total pagado", "Estado"];
+      filas = filasClientes.map((fila) => [fila.nombre, fila.documento, fila.telefono, fila.correo, fila.vehiculos, fila.movimientos, fila.total_pagado, fila.estado ? "Activo" : "Inactivo"]);
+    } else {
       return;
     }
 
-    if (pestana === "ingresos" && ingresos) {
-      descargarCSV(
-        `parkcontrol-ingresos-${periodo}.csv`,
-        [
-          ["Pago", "Movimiento", "Vehículo", "Placa", "Cliente", "Fecha", "Valor", "Método", "Estado"],
-          ...ingresos.filas.map((fila) => [
-            fila.id,
-            fila.movimiento_id,
-            fila.vehiculo,
-            fila.placa,
-            fila.cliente,
-            fila.fecha_pago,
-            fila.valor,
-            fila.metodo_pago,
-            fila.estado,
-          ]),
-        ]
-      );
+    if (formato === "excel") {
+      descargarExcel(nombre, encabezados, filas);
       return;
     }
 
-    if (clientes) {
-      descargarCSV(
-        `parkcontrol-clientes-${etiqueta}.csv`,
-        [
-          ["Cliente", "Documento", "Teléfono", "Correo", "Vehículos", "Movimientos", "Total pagado", "Estado"],
-          ...filasClientes.map((fila) => [
-            fila.nombre,
-            fila.documento,
-            fila.telefono,
-            fila.correo,
-            fila.vehiculos,
-            fila.movimientos,
-            fila.total_pagado,
-            fila.estado ? "Activo" : "Inactivo",
-          ]),
-        ]
-      );
-    }
+    const documento = new jsPDF({ orientation: "landscape" });
+    documento.setFontSize(16);
+    documento.text(`ParkControl · Reporte de ${nombreReporte}`, 14, 15);
+    documento.setFontSize(10);
+    documento.text(`Periodo: ${esAdministrador ? (PERIODOS.find((item) => item.valor === periodo)?.etiqueta ?? periodo) : "Hoy"}`, 14, 22);
+    autoTable(documento, {
+      head: [encabezados],
+      body: filas.map((fila) => fila.map((celda) => String(celda ?? "—"))),
+      startY: 28,
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [30, 64, 108] },
+      margin: { left: 14, right: 14 },
+    });
+    documento.save(`${nombre}.pdf`);
   }
 
   return (
     <section className="pc-modulo pc-vehiculos">
       <EncabezadoModulo
         seccion="Informes"
-        titulo="Reportes del parqueadero"
-        descripcion="Filtra y consulta movimientos, ingresos y clientes por periodo."
+        titulo={esAdministrador ? "Reportes del parqueadero" : "Movimientos del día"}
+        descripcion={esAdministrador ? "Filtra y consulta movimientos, ingresos y clientes por periodo." : "Consulta y descarga únicamente los movimientos registrados hoy."}
         accion={
           <div className="pc-acciones-encabezado">
-            <button className="pc-boton-secundario" onClick={exportar}>
+            <button className="pc-boton-secundario" onClick={() => exportar("excel")} disabled={cargando || cantidadExportable === 0}>
+              <FileSpreadsheet size={16} />
+              Descargar Excel
+            </button>
+            <button className="pc-boton-secundario" onClick={() => exportar("pdf")} disabled={cargando || cantidadExportable === 0}>
               <Download size={16} />
-              Exportar CSV
+              Descargar PDF
             </button>
 
             <button
@@ -292,7 +327,8 @@ export default function Reportes() {
           <label className="pc-filtro-campo">
             <span>Periodo</span>
             <select
-              value={periodo}
+              value={esAdministrador ? periodo : "hoy"}
+              disabled={!esAdministrador}
               onChange={(evento) => {
                 const valor = evento.target.value as PeriodoReporte;
                 setPeriodo(valor);
@@ -323,7 +359,7 @@ export default function Reportes() {
             </select>
           </label>
 
-          {periodo === "rango" && (
+          {esAdministrador && periodo === "rango" && (
             <>
               <label className="pc-filtro-campo">
                 <span>Desde</span>
@@ -407,7 +443,7 @@ export default function Reportes() {
                     new Date(periodoDatos.hasta).getTime() - 86400000
                   ).toISOString()
                 )}`
-              : "Calculando rango…"}
+              : esAdministrador ? "Calculando rango…" : "Movimientos de hoy"}
           </span>
 
           <span>
@@ -418,6 +454,8 @@ export default function Reportes() {
         </div>
       </section>
 
+      {esAdministrador && (
+      <>
       <FilaIndicadores>
         <Indicador
           etiqueta="Total recaudado"
@@ -584,14 +622,17 @@ export default function Reportes() {
         </section>
       </div>
 
+      </>
+      )}
+
       <section className="pc-vehiculos-listado">
         <BarraListado
           Icono={BarChart3}
           titulo="Detalle del reporte"
-          descripcion="Aplica filtros y exporta la información a Excel."
+          descripcion={esAdministrador ? "Aplica filtros y descarga los reportes en Excel o PDF." : "Movimientos del día disponibles para consulta y descarga."}
         >
           <div className="pc-pestanas">
-            {PESTANAS.map((item) => (
+            {PESTANAS.filter((item) => esAdministrador || item.valor === "movimientos").map((item) => (
               <button
                 key={item.valor}
                 className={`pc-pestana ${
@@ -841,19 +882,18 @@ export default function Reportes() {
 
           <span>
             <FileSpreadsheet size={15} />
-            Exportable a Excel
+            Descargable en Excel y PDF
           </span>
         </footer>
       </section>
 
       <footer className="pc-footer">
         <span>
-          <BarChart3 size={12} /> Reportes calculados sobre pagos confirmados.
+          <BarChart3 size={12} /> {esAdministrador ? "Reportes calculados sobre pagos confirmados." : "Reporte limitado a los movimientos registrados hoy."}
         </span>
-        <span>
-          <CalendarDays size={12} /> Periodos: hoy, ayer, semanal, quincenal y
-          mensual.
-        </span>
+        {esAdministrador && <span>
+          <CalendarDays size={12} /> Periodos: hoy, ayer, semanal, quincenal y mensual.
+        </span>}
       </footer>
     </section>
   );

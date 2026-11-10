@@ -262,7 +262,7 @@ function DisposicionPanel() {
             <span>
               {esAdministrador
                 ? "Acceso completo: vehículos, clientes, movimientos, pagos, tarifas, usuarios y reportes."
-                : "Acceso a vehículos, clientes, movimientos y pagos. Tarifas, usuarios y reportes están reservados para el administrador."}
+                : "Acceso a vehículos, clientes, movimientos y pagos; además puedes consultar y descargar los reportes de movimientos del día."}
             </span>
           </div>
 
